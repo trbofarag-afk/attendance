@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسجيل بيانات الطالب</title>
+<style>
+  :root{--bg:#f6f7f9;--fg:#1c1e21;--card:#fff;--acc:#2456d6}
+  @media (prefers-color-scheme:dark){:root{--bg:#15171a;--fg:#eceff3;--card:#22262b}}
+  body{margin:0;font-family:system-ui,"Segoe UI",Tahoma,sans-serif;background:var(--bg);color:var(--fg);padding:12px;max-width:480px;margin-inline:auto}
+  .card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px}
+  h1{font-size:20px;margin:0 0 12px}
+  label{display:block;margin:8px 0 4px;font-size:14px}
+  input,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #8884;width:100%;box-sizing:border-box;background:transparent;color:inherit}
+  button{background:var(--acc);color:#fff;border:0;margin-top:12px;cursor:pointer}
+  button.g{background:#6b7280}
+  #err{color:#c0392b;min-height:20px;margin-top:8px;font-size:14px}
+  #out{display:none;text-align:center}
+  canvas{max-width:100%;height:auto;border-radius:8px;background:#fff}
+  .note{font-size:13px;opacity:.8;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="card" id="form">
+  <h1>تسجيل بيانات الطالب</h1>
+  <label for="name">الاسم بالكامل</label>
+  <input id="name" autocomplete="name">
+  <label for="sid">الـ ID</label>
+  <input id="sid" inputmode="numeric">
+  <label for="grp">Group</label>
+  <input id="grp">
+  <div id="err"></div>
+  <button id="go">إنشاء الـ QR</button>
+</div>
+
+<div class="card" id="out">
+  <canvas id="cv"></canvas>
+  <button id="dl">حفظ الصورة</button>
+  <div class="note">احتفظ بالصورة على موبايلك أو اطبعها، وأظهرها للدكتور وقت الحضور.</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const KEY="student_profile_v1";
+
+function draw(name,sid,grp){
+  qrcode.stringToBytes=s=>Array.from(new TextEncoder().encode(s));
+  const qr=qrcode(0,"M");
+  qr.addData(sid+"|"+name+"|"+grp);
+  qr.make();
+  const n=qr.getModuleCount(),cell=8,margin=4*cell,size=n*cell+margin*2,extra=90;
+  const cv=$("cv");cv.width=size;cv.height=size+extra;
+  const c=cv.getContext("2d");
+  c.fillStyle="#fff";c.fillRect(0,0,cv.width,cv.height);
+  c.fillStyle="#000";
+  for(let r=0;r<n;r++)for(let k=0;k<n;k++)if(qr.isDark(r,k))c.fillRect(margin+k*cell,margin+r*cell,cell,cell);
+  c.textAlign="center";c.direction="rtl";
+  c.font="bold 22px sans-serif";c.fillText(name,size/2,size+8);
+  c.font="18px sans-serif";c.fillText("ID: "+sid+"   Group: "+grp,size/2,size+40);
+}
+
+function show(p){
+  draw(p.name,p.sid,p.grp);
+  $("form").style.display="none";$("out").style.display="block";
+}
+
+$("go").onclick=()=>{
+  const name=$("name").value.trim().replace(/\|/g,"/"),sid=$("sid").value.trim(),grp=$("grp").value.trim().replace(/\|/g,"/");
+  if(!name||!sid||!grp){$("err").textContent="من فضلك املأ كل الحقول.";return}
+  if(!/^\d+$/.test(sid)){$("err").textContent="الـ ID لازم يكون أرقام فقط.";return}
+  $("err").textContent="";
+  const p={name,sid,grp};
+  try{localStorage.setItem(KEY,JSON.stringify(p))}catch(e){}
+  show(p);
+};
+
+$("dl").onclick=()=>{
+  $("cv").toBlob(b=>{
+    const a=document.createElement("a");a.href=URL.createObjectURL(b);
+    a.download="QR_"+($("sid").value||"student")+".png";a.click();
+  });
+};
+
+try{
+  const p=JSON.parse(localStorage.getItem(KEY)||"null");
+  if(p){$("name").value=p.name;$("sid").value=p.sid;$("grp").value=p.grp;
+    if(window.qrcode)show(p)}
+}catch(e){}
+</script>
+</body>
+</html>

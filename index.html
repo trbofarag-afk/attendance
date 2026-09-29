@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسجيل الحضور</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2456d6">
+<style>
+  :root{--bg:#f6f7f9;--fg:#1c1e21;--card:#fff;--ok:#1a7f4b;--bad:#c0392b;--acc:#2456d6}
+  @media (prefers-color-scheme:dark){:root{--bg:#15171a;--fg:#eceff3;--card:#22262b}}
+  body{margin:0;font-family:system-ui,"Segoe UI",Tahoma,sans-serif;background:var(--bg);color:var(--fg);padding:12px;max-width:640px;margin-inline:auto}
+  .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px}
+  input,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #8884}
+  input{width:100%;box-sizing:border-box;margin-bottom:8px;background:transparent;color:inherit}
+  button{background:var(--acc);color:#fff;border:0;cursor:pointer;margin:2px}
+  button.g{background:#6b7280}
+  video{width:100%;border-radius:10px;background:#000;max-height:280px;object-fit:cover}
+  #msg{font-weight:700;text-align:center;padding:10px;border-radius:8px;min-height:24px}
+  .ok{background:#1a7f4b22;color:var(--ok)}.bad{background:#c0392b22;color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td,th{padding:6px;border-bottom:1px solid #8883;text-align:start}
+  .wrap{overflow-x:auto}
+  .ponly{display:none}
+  @media print{
+    body{background:#fff;color:#000;max-width:none;padding:0}
+    .noprint{display:none!important}
+    .ponly{display:block;font-size:18px;font-weight:700;margin-bottom:10px}
+    .card{padding:0;background:#fff}
+    td,th{border-bottom:1px solid #999}
+  }
+</style>
+</head>
+<body>
+<div class="card noprint">
+  <input id="lec" placeholder="اسم المحاضرة (مثال: Lecture 3)">
+  <button id="start">تشغيل الكاميرا</button>
+  <button id="stop" class="g">إيقاف</button>
+</div>
+<div class="card noprint">
+  <video id="v" playsinline muted></video>
+  <div id="msg"></div>
+  <input id="man" placeholder="أو اكتب الـ ID يدويًا (لو الكاميرا لا تعمل)" inputmode="numeric">
+  <button id="add">تسجيل يدوي</button>
+</div>
+<div class="card">
+  <div id="ptitle" class="ponly"></div>
+  <div>الحاضرون: <b id="cnt">0</b></div>
+  <div class="wrap"><table><thead><tr><th>#</th><th>الاسم</th><th>ID</th><th>Group</th><th>الوقت</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div class="noprint">
+    <button id="pdf">حفظ PDF</button>
+    <button id="csv" class="g">تصدير CSV</button>
+    <button id="clr" class="g">مسح السجل</button>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script>
+const KEY="attendance_v1";
+let recs=[];
+try{recs=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){}
+const $=id=>document.getElementById(id);
+let stream=null,timer=null,lastRaw="",lastAt=0,det=null;
+const cvs=document.createElement("canvas"),ctx=cvs.getContext("2d",{willReadFrequently:true});
+async function decode(){
+  const v=$("v");
+  if(!v.videoWidth)return null;
+  if(det){const r=await det.detect(v);return r.length?r[0].rawValue:null}
+  const k=Math.min(1,640/v.videoWidth);
+  cvs.width=Math.round(v.videoWidth*k);cvs.height=Math.round(v.videoHeight*k);
+  ctx.drawImage(v,0,0,cvs.width,cvs.height);
+  const d=ctx.getImageData(0,0,cvs.width,cvs.height);
+  const c=jsQR(d.data,d.width,d.height,{inversionAttempts:"dontInvert"});
+  return c?c.data:null;
+}
+
+function save(){try{localStorage.setItem(KEY,JSON.stringify(recs))}catch(e){}}
+function say(t,ok){const m=$("msg");m.textContent=t;m.className=ok?"ok":"bad"}
+function lecture(){return $("lec").value.trim()||"Lecture"}
+
+function render(){
+  $("cnt").textContent=recs.length;
+  $("rows").innerHTML=recs.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.name)}</td><td>${esc(r.id)}</td><td>${esc(r.group)}</td><td>${esc(r.time)}</td></tr>`).join("");
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+// QR payload format: ID|Name|Group
+function register(raw){
+  const p=raw.split("|");
+  if(p.length<3&&!/^\d+$/.test(raw.trim())){say("QR غير صالح",false);return}
+  const id=p[0].trim(),name=(p[1]||"").trim(),group=(p[2]||"").trim();
+  const lec=lecture();
+  if(recs.some(r=>r.id===id&&r.lecture===lec)){say("Already Registered — "+(name||id),false);buzz(200);return}
+  const now=new Date();
+  recs.push({id,name,group,lecture:lec,date:now.toLocaleDateString("en-CA"),time:now.toLocaleTimeString("en-GB")});
+  save();render();say("تم التسجيل ✔ "+(name||id),true);buzz(60);
+}
+function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
+
+if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}
+$("start").onclick=async()=>{
+  if(!window.isSecureContext||!navigator.mediaDevices){say("الكاميرا لا تعمل إلا على رابط https. افتح التطبيق من الرابط المستضاف وليس من الملف مباشرة.",false);return}
+  det=("BarcodeDetector" in window)?new BarcodeDetector({formats:["qr_code"]}):null;
+  if(!det&&!window.jsQR){say("مكتبة المسح لم تُحمَّل. افتح الصفحة مرة واحدة بوجود إنترنت ثم أعد المحاولة.",false);return}
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    $("v").srcObject=stream;await $("v").play();say("جاهز للمسح",true);
+    timer=setInterval(async()=>{
+      try{
+        const raw=await decode();
+        if(raw){
+          const t=Date.now();
+          if(raw!==lastRaw||t-lastAt>2500){lastRaw=raw;lastAt=t;register(raw)}
+        }
+      }catch(e){}
+    },300);
+  }catch(e){say("تعذر تشغيل الكاميرا: "+e.message,false)}
+};
+$("stop").onclick=()=>{clearInterval(timer);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null};
+$("add").onclick=()=>{const v=$("man").value.trim();if(v){register(v);$("man").value=""}};
+$("pdf").onclick=()=>{
+  if(!recs.length){say("لا يوجد حضور لحفظه.",false);return}
+  $("ptitle").textContent=lecture()+" — "+new Date().toLocaleDateString("en-CA")+" — عدد الحاضرين: "+recs.length;
+  window.print();
+};
+$("clr").onclick=()=>{if(confirm("مسح كل السجل؟")){recs=[];save();render()}};
+$("csv").onclick=()=>{
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const rows=[["Lecture","Date","Time","Name","ID","Group"],...recs.map(r=>[r.lecture,r.date,r.time,r.name,r.id,r.group])];
+  const blob=new Blob(["\ufeff"+rows.map(r=>r.map(q).join(",")).join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="attendance_"+lecture()+".csv";a.click();
+};
+render();
+</script>
+</body>
+</html>
